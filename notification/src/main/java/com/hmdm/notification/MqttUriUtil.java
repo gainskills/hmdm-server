@@ -39,17 +39,6 @@ public final class MqttUriUtil {
         public int getPort() { return port; }
         public String getOriginalUri() { return originalUri; }
 
-        /**
-         * Generate URI for broker binding (binds to all interfaces).
-         * Used by embedded MQTT broker to accept connections from any interface.
-         */
-        public String toBrokerBindUri() {
-            return scheme + "://0.0.0.0:" + port;
-        }
-
-        /**
-         * Check if this URI requires SSL/TLS configuration.
-         */
         public boolean isSecure() {
             return "ssl".equals(scheme) || "mqtts".equals(scheme);
         }
@@ -83,26 +72,17 @@ public final class MqttUriUtil {
             String scheme = uri.getScheme();
             String host = uri.getHost();
             int port = uri.getPort();
-
-            // Validate scheme
             if (!isValidScheme(scheme)) {
                 throw new IllegalArgumentException("Invalid MQTT protocol scheme: " + scheme +
                         ". Supported protocols: tcp://, ssl://, mqtt://, mqtts://");
             }
-
-            // Validate and normalize host
             if (host == null || host.trim().isEmpty()) {
                 host = "localhost";
             }
-
-            // Validate and set default port
             if (port <= 0 || port > 65535) {
                 throw new IllegalArgumentException("MQTT server port must be between 1 and 65535, got: " + port);
             }
-
-            // Reconstruct final normalized URI
             String finalUri = scheme + "://" + host + ":" + port;
-
             return new MqttUri(scheme, host, port, finalUri);
 
         } catch (URISyntaxException e) {
@@ -133,10 +113,11 @@ public final class MqttUriUtil {
      *
      * @param mqttUri the MQTT URI requiring SSL configuration
      * @param keystorePassword the keystore password
+     * @param sslProtocols optional SSL/TLS protocols to use (e.g., "TLSv1.2,TLSv1.3"), can be null
      * @return SSLSocketFactory for client use, null if not needed
      * @throws Exception if SSL configuration fails
      */
-    public static SSLSocketFactory configureSSL(MqttUri mqttUri, String keystorePassword) throws Exception {
+    public static SSLSocketFactory configureSSL(MqttUri mqttUri, String keystorePassword, String sslProtocols) throws Exception {
         if (!mqttUri.isSecure()) {
             return null; // No SSL configuration needed
         }
@@ -165,9 +146,15 @@ public final class MqttUriUtil {
                     ". Check keystore password and file integrity.", e);
         }
 
-        // Configure JVM-wide SSL properties for broker
+        // Configure JVM-wide SSL properties for broker to present its certificate
+        // Note: We set keyStore but NOT trustStore to avoid breaking HTTPS connections
         System.setProperty("javax.net.ssl.keyStore", keystorePath);
         System.setProperty("javax.net.ssl.keyStorePassword", keystorePassword);
+
+        // Configure TLS protocols if specified
+        if (sslProtocols != null && !sslProtocols.trim().isEmpty() && !sslProtocols.equals("TLS")) {
+            System.setProperty("https.protocols", sslProtocols);
+        }
 
         // Create SSL socket factory for client
         try {
