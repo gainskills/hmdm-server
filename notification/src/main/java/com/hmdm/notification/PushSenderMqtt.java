@@ -13,14 +13,13 @@ import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 
+import javax.net.ssl.SSLSocketFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import javax.net.ssl.SSLSocketFactory;
+import java.net.InetAddress;
 
 @Singleton
 public class PushSenderMqtt implements PushSender {
-    private static final Logger log = LoggerFactory.getLogger(PushSenderMqtt.class);
-    private static final int MQTT_QOS_LEVEL = 2;
     private final MqttUriUtil.MqttUri mqttUri;
     private final String clientTag;
     private final boolean mqttAuth;
@@ -32,8 +31,9 @@ public class PushSenderMqtt implements PushSender {
     private final MemoryPersistence persistence = new MemoryPersistence();
     private final long mqttDelay;
     private final String sslKeystorePassword;
-    private final MessageClassifier messageClassifier = new MessageClassifier();
+    private final String sslProtocols;
     private MqttClient client;
+    private static final Logger log = LoggerFactory.getLogger(PushSenderMqtt.class);
 
     @Inject
     public PushSenderMqtt(@Named("mqtt.server.uri") String serverUri,
@@ -43,6 +43,7 @@ public class PushSenderMqtt implements PushSender {
             @Named("mqtt.external") String mqttExternal,
             @Named("mqtt.message.delay") long mqttDelay,
             @Named("ssl.keystore.password") String sslKeystorePassword,
+            @Named("ssl.protocols") String sslProtocols,
             MqttThrottledSender throttledSender,
             BackgroundTaskRunnerService taskRunner,
             UnsecureDAO unsecureDAO) {
@@ -53,31 +54,22 @@ public class PushSenderMqtt implements PushSender {
         this.mqttExternal = mqttExternal;
         this.mqttDelay = mqttDelay;
         this.sslKeystorePassword = sslKeystorePassword;
+        this.sslProtocols = sslProtocols;
         this.throttledSender = throttledSender;
         this.taskRunner = taskRunner;
         this.unsecureDAO = unsecureDAO;
     }
 
-
     @Override
     public void init() {
         try {
-            boolean useExternal = MqttUriUtil.isExternalEnabled(mqttExternal);
-
-            log.info("Connecting to {} MQTT broker: {}",
-                    useExternal ? "external" : "local embedded", mqttUri.toString());
-
             MqttConnectOptions options = new MqttConnectOptions();
             options.setCleanSession(true);
             options.setAutomaticReconnect(true);
-            options.setMqttVersion(MqttConnectOptions.MQTT_VERSION_3_1_1);
-
             options.setKeepAliveInterval(600);
-            log.debug("MQTT server client keepalive interval set to 600 seconds (10 minutes)");
-
-            // Configure SSL if required
             if (mqttUri.isSecure()) {
-                SSLSocketFactory sslSocketFactory = MqttUriUtil.configureSSL(mqttUri, sslKeystorePassword);
+                SSLSocketFactory sslSocketFactory = MqttUriUtil.configureSSL(mqttUri, sslKeystorePassword,
+                        sslProtocols);
                 if (sslSocketFactory == null) {
                     throw new IllegalStateException(
                             "Failed to create SSL socket factory for secure MQTT connection: " + mqttUri.toString());
@@ -89,16 +81,18 @@ public class PushSenderMqtt implements PushSender {
                 options.setPassword(mqttAdminPassword.toCharArray());
             }
 
+            InetAddress address = InetAddress.getByName(mqttUri.getHost());
+            log.info("Connecting to MQTT broker - Hostname: {}, Resolved IP: {}, Port: {}, Full URI: {}",
+                    mqttUri.getHost(), address.getHostAddress(), mqttUri.getPort(), mqttUri.toString());
+
             client = new MqttClient(mqttUri.toString(), "HMDMServer" + clientTag, persistence);
             client.connect(options);
             if (mqttDelay > 0) {
                 throttledSender.setClient(client);
                 taskRunner.submitTask(throttledSender);
             }
-            log.info("MQTT client successfully connected to: {}", mqttUri.toString());
         } catch (Exception e) {
-            log.error("Failed to initialize MQTT client. Error: {}", e.getMessage(), e);
-            throw new RuntimeException("MQTT initialization failed", e);
+            e.printStackTrace();
         }
     }
 
@@ -123,19 +117,16 @@ public class PushSenderMqtt implements PushSender {
             strMessage += "}";
 
             MqttMessage mqttMessage = new MqttMessage(strMessage.getBytes());
-            mqttMessage.setQos(MQTT_QOS_LEVEL);
+            mqttMessage.setQos(2);
             String number = device.getOldNumber() == null ? device.getNumber() : device.getOldNumber();
             if (mqttDelay == 0) {
                 client.publish(number, mqttMessage);
             } else {
-                // Create prioritized envelope for adaptive throttling
-                MessagePriority priority = messageClassifier.classify(message);
-                PrioritizedMqttEnvelope envelope = new PrioritizedMqttEnvelope(number, mqttMessage, priority);
-                throttledSender.send(envelope);
+                throttledSender.send(new MqttEnvelope(number, mqttMessage));
             }
 
         } catch (Exception e) {
-            log.error("Failed to send MQTT message to device {}: {}", message.getDeviceId(), e.getMessage(), e);
+            e.printStackTrace();
         }
         return 0;
     }

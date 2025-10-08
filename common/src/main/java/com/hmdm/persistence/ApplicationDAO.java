@@ -48,7 +48,6 @@ import com.hmdm.rest.json.LinkConfigurationsToAppVersionRequest;
 import com.hmdm.rest.json.LookupItem;
 import com.hmdm.util.*;
 import org.apache.commons.codec.digest.DigestUtils;
-import org.glassfish.jersey.jaxb.internal.XmlJaxbElementProvider;
 import org.mybatis.guice.transactional.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

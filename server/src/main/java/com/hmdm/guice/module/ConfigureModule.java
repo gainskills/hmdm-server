@@ -273,7 +273,7 @@ public class ConfigureModule extends AbstractModule {
 
         opt = this.context.getInitParameter(updatesSendStatsDefaultParameter);
         this.bindConstant().annotatedWith(Names.named(updatesSendStatsDefaultParameter)).to(opt != null ? opt : "true");
-      
+
         opt = this.context.getInitParameter(jwtSecretKey);
         this.bindConstant().annotatedWith(Names.named(jwtSecretKey)).to(opt != null ? opt : "");
         opt = this.context.getInitParameter(jwtValidity);

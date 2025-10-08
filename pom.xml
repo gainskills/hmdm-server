@@ -42,25 +42,25 @@
 
     <!-- dependencies version -->
     <properties>
-        <java.version>1.8</java.version>
+        <java.version>11</java.version>
         <javax.mail>1.5.0-b01</javax.mail>
         <java.rest.webservice>2.0.1</java.rest.webservice>
         <jackson.version>1.9.13</jackson.version>
 
-        <guice.version>4.2.2</guice.version>
+        <guice.version>5.1.0</guice.version>
 
         <servlet-api.version>2.5</servlet-api.version>
 
         <mybatis.version>3.5.3</mybatis.version>
         <mybatis.guice.version>3.10</mybatis.guice.version>
 
-        <postgresql.version>42.3.8</postgresql.version>
-        <liquibase.version>3.6.3</liquibase.version>
+        <postgresql.version>42.7.4</postgresql.version>
+        <liquibase.version>3.10.3</liquibase.version>
 
-        <junit.version>4.13.1</junit.version>
+        <junit.version>4.13.2</junit.version>
         <slf4j.version>2.0.16</slf4j.version>
 
-        <poi.version>4.1.0</poi.version>
+        <poi.version>5.3.0</poi.version>
 
         <timestamp>${maven.build.timestamp}</timestamp>
         <maven.build.timestamp.format>D-HH-mm</maven.build.timestamp.format>
@@ -69,10 +69,10 @@
 
         <opensource.dist.dir>/Headwind/AndroidKioskWeb/opensource</opensource.dist.dir>
 
-        <glassfish-jersey.version>2.25.1</glassfish-jersey.version>
+        <glassfish-jersey.version>2.41</glassfish-jersey.version>
         <guice-bridge.version>2.6.1</guice-bridge.version>
-        
-        <lombok.version>1.18.20</lombok.version>
+
+        <lombok.version>1.18.34</lombok.version>
     </properties>
 
     <dependencies>
@@ -113,6 +113,12 @@
             <version>${glassfish-jersey.version}</version>
             <scope>runtime</scope>
         </dependency>
+        <!-- Jersey 2.26+ requires explicit DI implementation -->
+        <dependency>
+            <groupId>org.glassfish.jersey.inject</groupId>
+            <artifactId>jersey-hk2</artifactId>
+            <version>${glassfish-jersey.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.glassfish.hk2</groupId>
             <artifactId>guice-bridge</artifactId>
@@ -123,19 +129,19 @@
         <dependency>
             <groupId>javax.xml.bind</groupId>
             <artifactId>jaxb-api</artifactId>
-            <version>2.2.11</version>
+            <version>2.3.1</version>
             <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>com.sun.xml.bind</groupId>
             <artifactId>jaxb-core</artifactId>
-            <version>2.2.11</version>
+            <version>2.3.0.1</version>
             <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>com.sun.xml.bind</groupId>
             <artifactId>jaxb-impl</artifactId>
-            <version>2.2.11</version>
+            <version>2.3.9</version>
             <scope>runtime</scope>
         </dependency>
         <dependency>
@@ -156,20 +162,20 @@
         <dependency>
             <groupId>io.swagger</groupId>
             <artifactId>swagger-jersey2-jaxrs</artifactId>
-            <version>1.5.24</version>
+            <version>1.6.14</version>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-databind -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-            <version>2.10.0</version>
+            <version>2.15.3</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-annotations -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-annotations</artifactId>
-            <version>2.10.0</version>
+            <version>2.15.3</version>
         </dependency>
 
 
@@ -191,12 +197,6 @@
         <dependency>
             <groupId>com.google.inject.extensions</groupId>
             <artifactId>guice-servlet</artifactId>
-            <version>${guice.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>com.google.inject.extensions</groupId>
-            <artifactId>guice-multibindings</artifactId>
             <version>${guice.version}</version>
         </dependency>
 
@@ -282,11 +282,11 @@
             <version>20230227</version>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/org.mockito/mockito-all -->
+        <!-- https://mvnrepository.com/artifact/org.mockito/mockito-core -->
         <dependency>
             <groupId>org.mockito</groupId>
-            <artifactId>mockito-all</artifactId>
-            <version>1.10.19</version>
+            <artifactId>mockito-core</artifactId>
+            <version>4.11.0</version>
             <scope>test</scope>
         </dependency>
 
@@ -294,7 +294,7 @@
         <dependency>
             <groupId>org.assertj</groupId>
             <artifactId>assertj-core</artifactId>
-            <version>3.14.0</version>
+            <version>3.26.3</version>
             <scope>test</scope>
         </dependency>
 
