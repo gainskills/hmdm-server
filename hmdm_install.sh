@@ -37,6 +37,7 @@ SMTP_FROM=
 MQTT_SERVER_URI=${MQTT_SERVER_URI:-}
 MQTT_ADMIN_PASSWORD=${MQTT_ADMIN_PASSWORD:-}
 SSL_KEYSTORE_PASSWORD=${SSL_KEYSTORE_PASSWORD:-123456}
+SSL_PROTOCOLS=${SSL_PROTOCOLS:-TLS}
 
 install_soft() {
     read -e -p "Install missing package(s) automatically? (Y/n)?" -n 1 -r
@@ -354,12 +355,12 @@ if [[ "$MQTT_PROTOCOL" == "ssl" || "$MQTT_PROTOCOL" == "mqtts" ]]; then
         chown $TOMCAT_USER:$TOMCAT_USER $SSL_DIR
     fi
 
-    MQTT_JKS_PATH="$SSL_DIR/$BASE_DOMAIN.jks"
-    MQTT_P12_PATH="$SSL_DIR/$BASE_DOMAIN.p12"
+    MQTT_JKS_PATH="$SSL_DIR/$MQTT_DOMAIN.jks"
+    MQTT_P12_PATH="$SSL_DIR/$MQTT_DOMAIN.p12"
 
     # Check if JKS already exists (e.g., same domain as web server)
     if [[ ! -f "$MQTT_JKS_PATH" ]]; then
-        echo "Creating MQTT SSL keystore for $BASE_DOMAIN..."
+        echo "Creating MQTT SSL keystore for $MQTT_DOMAIN..."
 
         # Check for custom PEM files via environment variables
         if [[ -n "$MQTT_CERT_FILE" && -n "$MQTT_KEY_FILE" ]]; then
@@ -414,7 +415,7 @@ if [ ! -d $TOMCAT_CONFIG_PATH ]; then
     chown root:$TOMCAT_USER $TOMCAT_CONFIG_PATH
     chmod 755 $TOMCAT_CONFIG_PATH
 fi
-cat ./install/context_template.xml | sed "s|_SQL_HOST_|$SQL_HOST|g; s|_SQL_PORT_|$SQL_PORT|g; s|_SQL_BASE_|$SQL_BASE|g; s|_SQL_USER_|$SQL_USER|g; s|_SQL_PASS_|$SQL_PASS|g; s|_BASE_DIRECTORY_|$LOCATION|g; s|_PROTOCOL_|$PROTOCOL|g; s|_BASE_HOST_|$BASE_HOST|g; s|_BASE_DOMAIN_|$BASE_DOMAIN|g; s|_BASE_PATH_|$BASE_PATH|g; s|_INSTALL_FLAG_|$INSTALL_FLAG_FILE|g; s|_SMTP_HOST_|$SMTP_HOST|g; s|_SMTP_PORT_|$SMTP_PORT|g;  s|_SMTP_SSL_|$SMTP_SSL|g; s|_SMTP_STARTTLS_|$SMTP_STARTTLS|g; s|_SMTP_USERNAME_|$SMTP_USERNAME|g; s|_SMTP_PASSWORD_|$SMTP_PASSWORD|g; s|_SMTP_FROM_|$SMTP_FROM|g; s|_MQTT_SERVER_URI_|$MQTT_SERVER_URI|g; s|_MQTT_ADMIN_PASSWORD_|$MQTT_ADMIN_PASSWORD|g; s|_SSL_KEYSTORE_PASSWORD_|$SSL_KEYSTORE_PASSWORD|g;" > $TOMCAT_CONFIG_PATH/$TOMCAT_DEPLOY_PATH.xml
+cat ./install/context_template.xml | sed "s|_SQL_HOST_|$SQL_HOST|g; s|_SQL_PORT_|$SQL_PORT|g; s|_SQL_BASE_|$SQL_BASE|g; s|_SQL_USER_|$SQL_USER|g; s|_SQL_PASS_|$SQL_PASS|g; s|_BASE_DIRECTORY_|$LOCATION|g; s|_PROTOCOL_|$PROTOCOL|g; s|_BASE_HOST_|$BASE_HOST|g; s|_BASE_DOMAIN_|$BASE_DOMAIN|g; s|_BASE_PATH_|$BASE_PATH|g; s|_INSTALL_FLAG_|$INSTALL_FLAG_FILE|g; s|_SMTP_HOST_|$SMTP_HOST|g; s|_SMTP_PORT_|$SMTP_PORT|g;  s|_SMTP_SSL_|$SMTP_SSL|g; s|_SMTP_STARTTLS_|$SMTP_STARTTLS|g; s|_SMTP_USERNAME_|$SMTP_USERNAME|g; s|_SMTP_PASSWORD_|$SMTP_PASSWORD|g; s|_SMTP_FROM_|$SMTP_FROM|g; s|_MQTT_SERVER_URI_|$MQTT_SERVER_URI|g; s|_MQTT_ADMIN_PASSWORD_|$MQTT_ADMIN_PASSWORD|g; s|_SSL_KEYSTORE_PASSWORD_|$SSL_KEYSTORE_PASSWORD|g; s|_SSL_PROTOCOLS_|$SSL_PROTOCOLS|g;" > $TOMCAT_CONFIG_PATH/$TOMCAT_DEPLOY_PATH.xml
 if [ "$?" -ne 0 ]; then
     echo "Failed to create a Tomcat config file $TOMCAT_CONFIG_PATH/$TOMCAT_DEPLOY_PATH.xml!"
     exit 1
@@ -573,6 +574,3 @@ echo "$PROTOCOL://$BASE_HOST$BASE_PATH"
 echo "Login: admin:admin"
 echo "======================================"
 echo
-
-
-

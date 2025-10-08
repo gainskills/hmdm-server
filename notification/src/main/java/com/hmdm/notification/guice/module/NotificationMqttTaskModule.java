@@ -17,14 +17,15 @@ import java.util.List;
 
 public class NotificationMqttTaskModule {
 
-    private final MqttUriUtil.MqttUri mqttUri;
-    private final String mqttExternal;
-    private final boolean mqttAuth;
-    private final String mqttAdminPassword;
-    private final String sslKeystorePassword;
-    private final String hashSecret;
-    private final PushSender pushSender;
+    private String serverUri;
+    private String mqttExternal;
+    private boolean mqttAuth;
+    private String mqttAdminPassword;
+    private String sslKeystorePassword;
+    private String sslProtocols;
+    private String hashSecret;
     private BrokerService brokerService;
+    private PushSender pushSender;
     private static final Logger log = LoggerFactory.getLogger(NotificationMqttTaskModule.class);
     public static final String MQTT_USERNAME = "hmdm";
     public static final String MQTT_ADMIN_USERNAME = "admin";
@@ -35,14 +36,16 @@ public class NotificationMqttTaskModule {
             @Named("mqtt.auth") boolean mqttAuth,
             @Named("mqtt.admin.password") String mqttAdminPassword,
             @Named("ssl.keystore.password") String sslKeystorePassword,
+            @Named("ssl.protocols") String sslProtocols,
             @Named("hash.secret") String hashSecret,
             @Named("MQTT") PushSender pushSender) {
-        this.mqttUri = MqttUriUtil.parse(serverUri);
+        this.serverUri = serverUri;
         this.mqttExternal = mqttExternal;
         this.pushSender = pushSender;
         this.mqttAuth = mqttAuth;
         this.mqttAdminPassword = mqttAdminPassword;
         this.sslKeystorePassword = sslKeystorePassword;
+        this.sslProtocols = sslProtocols;
         this.hashSecret = hashSecret;
     }
 
@@ -59,12 +62,13 @@ public class NotificationMqttTaskModule {
     }
 
     private boolean initBrokerService() {
-        if (mqttUri == null) {
-            log.info("MQTT service not initialized (parameter mqtt.server.uri not set)");
-            return false;
-        }
+        MqttUriUtil.MqttUri mqttUri = MqttUriUtil.parse(serverUri);
         if (MqttUriUtil.isExternalEnabled(mqttExternal)) {
-            log.info("MQTT service not started, use external MQTT server {}", mqttUri);
+            if (serverUri.equals("")) {
+                log.error("external MQTT server is empty");
+                return false;
+            }
+            log.info("MQTT service not started, use external MQTT server {}", serverUri);
             return true;
         }
 
@@ -109,43 +113,26 @@ public class NotificationMqttTaskModule {
             brokerService.setPlugins(new BrokerPlugin[] { authPlugin, authorizationPlugin });
         }
 
+        if (mqttUri.isSecure()) {
+            try {
+                MqttUriUtil.configureSSL(mqttUri, sslKeystorePassword, sslProtocols);
+            } catch (Exception e) {
+                log.error("Failed to validate SSL configuration, cannot start MQTT broker", e);
+                return false;
+            }
+        }
+
+        String protocol = mqttUri.isSecure() ? "mqtt+nio+ssl" : "mqtt+nio";
+        String connectorUri = protocol + "://0.0.0.0:" + mqttUri.getPort();
+
+        log.info("Starting embedded MQTT broker with connector: {}", connectorUri);
         try {
-            if (mqttUri.isSecure()) {
-                MqttUriUtil.configureSSL(mqttUri, sslKeystorePassword);
-            }
-            String brokerBindUri = mqttUri.toBrokerBindUri();
-            // ActiveMQ requires explicit MQTT transport protocol for MQTT clients
-            String mqttTransportUri;
-            if (mqttUri.isSecure()) {
-                // ssl:// or mqtts:// -> mqtt+nio+ssl://
-                mqttTransportUri = brokerBindUri.replace("ssl://", "mqtt+nio+ssl://")
-                                               .replace("mqtts://", "mqtt+nio+ssl://");
-            } else {
-                // tcp:// or mqtt:// -> mqtt+nio://
-                mqttTransportUri = brokerBindUri.replace("tcp://", "mqtt+nio://")
-                                               .replace("mqtt://", "mqtt+nio://");
-            }
-            log.info("Starting ActiveMQ MQTT transport on: {}", mqttTransportUri);
-            brokerService.addConnector(mqttTransportUri);
+            brokerService.addConnector(connectorUri);
             brokerService.start();
         } catch (Exception e) {
-            log.error("Failed to create MQTT broker service", e);
+            log.error("Failed to start MQTT broker: " + connectorUri, e);
             return false;
         }
         return true;
     }
-
-    public void destroy() {
-        if (brokerService != null) {
-            try {
-                if (brokerService.isStarted()) {
-                    brokerService.stop();
-                    log.info("MQTT broker service stopped successfully");
-                }
-            } catch (Exception e) {
-                log.error("Failed to stop MQTT broker service", e);
-            }
-        }
-    }
-
 }
