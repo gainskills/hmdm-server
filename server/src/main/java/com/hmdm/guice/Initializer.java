@@ -104,18 +104,78 @@ public final class Initializer extends GuiceServletContextListener {
     public void contextInitialized(ServletContextEvent servletContextEvent) {
         this.context = servletContextEvent.getServletContext();
 
-        String log4jConfig = context.getInitParameter("log4j.config");
-        if (log4jConfig != null && !log4jConfig.isEmpty()) {
-            System.out.println("[HMDM-LOGGING] : Using log4j configuration from: " + log4jConfig);
-            System.setProperty("log4j.configuration", log4jConfig);
-            System.setProperty("log4j.ignoreTCL", "true");
+        String logbackConfig = context.getInitParameter("logback.config");
+        if (logbackConfig != null && !logbackConfig.isEmpty()) {
+            System.out.println("[HMDM-LOGGING] Reconfiguring Logback from: " + logbackConfig);
+
+            org.slf4j.ILoggerFactory loggerFactory = org.slf4j.LoggerFactory.getILoggerFactory();
+            if (loggerFactory instanceof ch.qos.logback.classic.LoggerContext loggerContext) {
+                // NOTE: deliberate deviation from the upstream (convergent dd0c39a) form of this block.
+                // Upstream called loggerContext.reset() before resolving the URL, so any failure -- an
+                // unresolved ${logback.config} token, a missing file, malformed XML -- left the logger
+                // context wiped with no appenders and silenced the application, while printing a
+                // "falling back" message that nothing implemented. The URL is now resolved before
+                // anything is reset, and the failure path genuinely restores the bundled configuration.
+                // Please do not "restore" this to match upstream.
+                java.net.URL configUrl = null;
+                try {
+                    configUrl = java.net.URI.create(logbackConfig).toURL();
+                } catch (Exception e) {
+                    System.err.println("[HMDM-LOGGING] Invalid logback.config URL '" + logbackConfig
+                            + "': " + e);
+                    System.err.println("[HMDM-LOGGING] Keeping the bundled logback.xml configuration");
+                }
+
+                if (configUrl != null) {
+                    try {
+                        loggerContext.reset();
+
+                        ch.qos.logback.classic.joran.JoranConfigurator configurator =
+                                new ch.qos.logback.classic.joran.JoranConfigurator();
+                        configurator.setContext(loggerContext);
+                        configurator.doConfigure(configUrl);
+
+                        System.out.println("[HMDM-LOGGING] Logback reconfigured successfully");
+                    } catch (Exception e) {
+                        System.err.println("[HMDM-LOGGING] Failed to reconfigure Logback: " + e);
+                        restoreBundledLogbackConfig(loggerContext);
+                    }
+                }
+            } else {
+                // SLF4J resolved to a provider other than Logback, so there is nothing to
+                // reconfigure. Skip it rather than letting a ClassCastException escape
+                // contextInitialized() and abort the deployment of the web application.
+                System.err.println("[HMDM-LOGGING] SLF4J is bound to "
+                        + loggerFactory.getClass().getName() + ", not to Logback; "
+                        + "skipping the reconfiguration from " + logbackConfig);
+            }
         } else {
-            System.out.println("[HMDM-LOGGING] Using log4j configuration from build");
+            System.out.println("[HMDM-LOGGING] Using bundled Logback configuration");
         }
 
         super.contextInitialized(servletContextEvent);
 
         initTasks();
+    }
+
+    /**
+     * <p>Re-applies the <code>logback.xml</code> bundled in the web application after an attempt to apply an external configuration has failed.</p>
+     *
+     * <p>The context is reset first: a <code>doConfigure()</code> that threw part-way through may have left a partially applied configuration behind.
+     * Without this, a failed reconfiguration leaves the logger context with no appenders at all and the application logs nothing.</p>
+     *
+     * @param loggerContext the Logback context to restore.
+     */
+    private static void restoreBundledLogbackConfig(ch.qos.logback.classic.LoggerContext loggerContext) {
+        try {
+            loggerContext.reset();
+            new ch.qos.logback.classic.util.ContextInitializer(loggerContext)
+                    .autoConfig(Initializer.class.getClassLoader());
+            System.err.println("[HMDM-LOGGING] Restored the bundled logback.xml configuration");
+        } catch (Exception e) {
+            System.err.println("[HMDM-LOGGING] Could not restore the bundled logback.xml "
+                    + "configuration, logging may be disabled: " + e);
+        }
     }
 
     @Override

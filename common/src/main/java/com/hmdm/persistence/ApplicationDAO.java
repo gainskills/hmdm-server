@@ -399,6 +399,15 @@ public class ApplicationDAO extends AbstractLinkedDAO<Application, ApplicationCo
 
     private void removeVersionApk(Customer customer, Integer id, String url) {
         if (url != null && !url.trim().isEmpty()) {
+            // The same APK file may be referenced by another application version
+            // (potentially another customer's). Deleting it would break that version, so skip the
+            // unlink while any other version still points at this file.
+            final int otherRefs = this.mapper.countOtherVersionsByUrl(url, id);
+            if (otherRefs > 0) {
+                log.info("Keeping APK-file still referenced by {} other application version(s) "
+                        + "when deleting version #{}: {}", otherRefs, id, url);
+                return;
+            }
             final String apkFile = FileUtil.translateURLToLocalFilePath(customer, url, baseUrl);
             if (apkFile != null) {
                 final boolean deleted = FileUtil.deleteFile(customer, filesDirectory, apkFile);
@@ -830,9 +839,50 @@ public class ApplicationDAO extends AbstractLinkedDAO<Application, ApplicationCo
             }
 
             final Application dbApplication = this.mapper.findById(dbApplicationVersion.getApplicationId());
-            boolean used = this.mapper.isApplicationVersionUsedInConfigurations(id);
-            if (used) {
+
+            if (this.mapper.isApplicationVersionUsedInConfigurationApplications(id)) {
                 throw new ApplicationReferenceExistsException(id, "configurations");
+            }
+
+            boolean usedAsMain = this.mapper.isApplicationVersionUsedAsMainApp(id);
+            boolean usedAsContent = this.mapper.isApplicationVersionUsedAsContentApp(id);
+            if (usedAsMain || usedAsContent) {
+                // Scope the replacement lookup and the rebind to the application's owning
+                // customer, so deleting a per-customer version can never repoint another tenant's
+                // configurations. A common application is super-admin-only (checked above) and is
+                // intentionally shared across tenants, so its rebind stays cross-tenant (unscoped).
+                final int appCustomerId = dbApplication.getCustomerId();
+                final boolean shared = dbApplication.isCommonApplication();
+                Integer replacementVersionId =
+                        this.mapper.findReplacementVersionId(dbApplication.getId(), id, appCustomerId);
+                if (replacementVersionId == null) {
+                    throw new ApplicationReferenceExistsException(id, "configurations");
+                }
+                if (usedAsMain) {
+                    if (shared) {
+                        this.mapper.changeConfigurationsMainApplication(id, replacementVersionId);
+                    } else {
+                        this.mapper.changeConfigurationsMainApplicationForCustomer(
+                                id, replacementVersionId, appCustomerId);
+                    }
+                }
+                if (usedAsContent) {
+                    if (shared) {
+                        this.mapper.changeConfigurationsContentApplication(id, replacementVersionId);
+                    } else {
+                        this.mapper.changeConfigurationsContentApplicationForCustomer(
+                                id, replacementVersionId, appCustomerId);
+                    }
+                }
+
+                // Safety net: the rebind above is customer-scoped for per-customer apps, so a stray
+                // cross-tenant reference (only possible from pre-existing bad data the app never
+                // creates) would survive it. Re-check globally and abort with the domain exception
+                // rather than letting the delete below fail with a raw FK violation.
+                if (this.mapper.isApplicationVersionUsedAsMainApp(id)
+                        || this.mapper.isApplicationVersionUsedAsContentApp(id)) {
+                    throw new ApplicationReferenceExistsException(id, "configurations");
+                }
             }
 
             this.mapper.removeApplicationVersionById(id);

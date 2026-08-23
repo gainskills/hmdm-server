@@ -207,8 +207,8 @@ fi
 INSTALL_FLAG_FILE="$LOCATION/hmdm_install_flag"
 
 # Logger configuration
-cat ./install/log4j_template.xml | sed "s|_BASE_DIRECTORY_|$LOCATION|g" > $LOCATION/log4j-hmdm.xml
-chown $TOMCAT_USER:$TOMCAT_USER $LOCATION/log4j-hmdm.xml
+cat ./install/logback_template.xml | sed "s|_BASE_DIRECTORY_|$LOCATION|g" > $LOCATION/logback-hmdm.xml
+chown $TOMCAT_USER:$TOMCAT_USER $LOCATION/logback-hmdm.xml
 
 echo
 echo "Please choose the directory where supply scripts will be located."
@@ -366,6 +366,61 @@ if [[ "$REPLY" =~ ^[Yy]$ ]]; then
         apt update
         apt install -y certbot
     fi
+    # --- certbot deploy hook: publish PEMs where Tomcat and the MQTT broker can read them ---
+    #
+    # Certbot creates /etc/letsencrypt/{live,archive} root-only, so neither Tomcat's
+    # HTTPS connector nor the embedded broker can read the key there. A deploy hook
+    # stages each renewal into /etc/hmdm/tls instead. An ACL on /etc/letsencrypt was
+    # rejected as the alternative: it would grant the Tomcat account read access to
+    # the private key of every domain on the host.
+    #
+    # This must be installed by hmdm_install.sh rather than by letsencrypt-ssl.sh,
+    # because the renewal script runs from $SCRIPT_LOCATION (and from cron), where
+    # the checkout that contains the hook may not exist at all.
+
+    # Explicit certificate name. Pinning it makes the lineage path deterministic:
+    # --cert-name targets one specific lineage, and reusing the name updates that
+    # lineage instead of creating a colliding <domain>-0001.
+    #
+    # Domain-qualified, NOT a bare "hmdm": --cert-name modifies whatever certificate
+    # already bears that name, so a generic name could silently repurpose an
+    # unrelated lineage on a shared host.
+    CERT_NAME="${CERT_NAME:-hmdm-$BASE_DOMAIN}"
+
+    # Resolve the Tomcat group deterministically. A username is not its primary group.
+    TOMCAT_GROUP=$(id -gn "$TOMCAT_USER") || { echo "cannot resolve group for $TOMCAT_USER"; exit 1; }
+
+    # Key material: root-owned, Tomcat-group-readable.
+    install -d -o root -g "$TOMCAT_GROUP" -m 0750 /etc/hmdm/tls
+    # Runtime state: Tomcat-owned, because the application's pemcfg writer creates
+    # its temp file HERE and so needs write permission on the directory itself.
+    # This is why the pemcfg does not live beside the keys.
+    install -d -o "$TOMCAT_USER" -g "$TOMCAT_GROUP" -m 0750 /var/lib/hmdm/mqtt
+    mkdir -p /etc/letsencrypt/renewal-hooks/deploy
+
+    # Write hook.env COMPLETE, before the hook exists on disk. All values are known
+    # now: the account and group from id(1), the name we chose, the lineage derived
+    # from it. Writing it in two stages would leave a window in which the hook is
+    # installed but cannot resolve HMDM_LINEAGE.
+    #
+    # hook.env is the single source of CERT_NAME -- it is not sed-substituted into
+    # the renewal script. One file defines the name, the lineage, the account and
+    # the group together, and both the hook and the renewal script source it. Two
+    # mechanisms could drift apart; one cannot.
+    ( umask 077
+      cat > /etc/hmdm/tls/hook.env <<EOF
+CERT_NAME=$CERT_NAME
+TOMCAT_USER=$TOMCAT_USER
+TOMCAT_GROUP=$TOMCAT_GROUP
+HMDM_LINEAGE=/etc/letsencrypt/live/$CERT_NAME
+EOF
+    )
+    chown root:root /etc/hmdm/tls/hook.env && chmod 0600 /etc/hmdm/tls/hook.env
+
+    # Only now install the hook, from the checkout, where it exists.
+    install -o root -g root -m 0755 ./install/hmdm-tls-deploy-hook.sh \
+            /etc/letsencrypt/renewal-hooks/deploy/hmdm-tls
+
     sed "s/DOMAIN=your-domain.com/DOMAIN=$BASE_DOMAIN/" ./letsencrypt-ssl.sh > $SCRIPT_LOCATION/letsencrypt-ssl.sh
     chmod +x $SCRIPT_LOCATION/letsencrypt-ssl.sh
     $SCRIPT_LOCATION/letsencrypt-ssl.sh
@@ -382,7 +437,7 @@ if [[ "$REPLY" =~ ^[Yy]$ ]]; then
     if [[ "$REPLY" =~ ^[Yy]$ ]]; then
         cp $TOMCAT_HOME/conf/server.xml $TOMCAT_HOME/conf/server.xml~
 	# EPIC MAGIC!!!
-        sed -z -e "s^<\!\-\-\n    <Connector port=\"8443\" protocol=\"org.apache.coyote.http11.Http11NioProtocol\"^<Connector port=\"8443\" protocol=\"org.apache.coyote.http11.Http11NioProtocol\"^" -e "s^\-\->\n    <\!\-\- Define an SSL/TLS HTTP/1.1 Connector on port 8443 with HTTP/2^<\!\-\- Define an SSL/TLS HTTP/1.1 Connector on port 8443 with HTTP/2^" -e "s^certificateKeystoreFile=\"conf/localhost-rsa.jks\"^certificateKeystoreFile=\"/usr/local/tomcat/ssl/$BASE_DOMAIN.jks\" certificateKeystorePassword=\"123456\"^" $TOMCAT_HOME/conf/server.xml~ > $TOMCAT_HOME/conf/server.xml
+        sed -z -e "s^<\!\-\-\n    <Connector port=\"8443\" protocol=\"org.apache.coyote.http11.Http11NioProtocol\"^<Connector port=\"8443\" protocol=\"org.apache.coyote.http11.Http11NioProtocol\"^" -e "s^\-\->\n    <\!\-\- Define an SSL/TLS HTTP/1.1 Connector on port 8443 with HTTP/2^<\!\-\- Define an SSL/TLS HTTP/1.1 Connector on port 8443 with HTTP/2^" -e "s^certificateKeystoreFile=\"conf/localhost-rsa.jks\"^certificateKeyFile=\"/etc/hmdm/tls/current/privkey.pem\" certificateFile=\"/etc/hmdm/tls/current/cert.pem\" certificateChainFile=\"/etc/hmdm/tls/current/chain.pem\"^" $TOMCAT_HOME/conf/server.xml~ > $TOMCAT_HOME/conf/server.xml
         CERTBOT_VERSION=`certbot --version | awk '{print $2}' | awk '{n=split($1,A,"."); print A[1]}'`
         if [ "$CERTBOT_VERSION" != "" ] && [ "$CERTBOT_VERSION" -ge "2" ]; then
         # In certbot 2, default encryption is ECDSA so we need to adjust it in Tomcat config

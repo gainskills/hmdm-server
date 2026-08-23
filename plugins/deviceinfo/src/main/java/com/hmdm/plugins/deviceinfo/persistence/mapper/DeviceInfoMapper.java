@@ -95,10 +95,14 @@ public interface DeviceInfoMapper {
     /**
      * <p>Deletes the device info records which are older than number of days configured in customer's profile.</p>
      *
+     * <p>The customerId predicate is required, not redundant: the subquery only computes the cutoff for the given customer, so without it the
+     * statement deletes every customer's records older than that cutoff.</p>
+     *
      * @return a number of deleted records.
      */
     @Delete("DELETE FROM plugin_deviceinfo_deviceParams "
-            + "WHERE ts < (SELECT EXTRACT(EPOCH FROM DATE_TRUNC('day', NOW() - (pds.dataPreservePeriod || ' day')::INTERVAL)) * 1000 "
+            + "WHERE customerId = #{customerId} "
+            + "AND ts < (SELECT EXTRACT(EPOCH FROM DATE_TRUNC('day', NOW() - (pds.dataPreservePeriod || ' day')::INTERVAL)) * 1000 "
             + "            FROM plugin_deviceinfo_settings pds " + "            WHERE pds.customerId =  #{customerId})")
     int purgeDeviceInfoRecords(@Param("customerId") int customerId);
 
