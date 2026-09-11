@@ -249,6 +249,10 @@ public interface ApplicationMapper {
             @Param("versionId") Integer applicationVersionId,
             @Param("confs") List<ApplicationConfigurationLink> configurations);
 
+    @Select("SELECT EXISTS (SELECT 1 FROM configurations WHERE id = #{configurationId} AND customerId = #{customerId})")
+    boolean isConfigurationOwnedByCustomer(
+            @Param("configurationId") int configurationId, @Param("customerId") int customerId);
+
     void insertApplicationVersionConfigurations(
             @Param("applicationId") Integer applicationId,
             @Param("versionId") Integer applicationVersionId,

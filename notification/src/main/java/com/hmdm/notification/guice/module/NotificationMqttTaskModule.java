@@ -29,9 +29,8 @@ import org.slf4j.LoggerFactory;
 /**
  * MQTT notification task module using ActiveMQ Artemis. Provides embedded MQTT broker functionality for push notifications.
  *
- * <p>Must be a {@link Singleton}: {@code Initializer} resolves this module once via {@code getInstance()} to call {@link #init()} at startup and
- * again to call {@link #shutdown()} at context destruction. Without singleton scope those two lookups return distinct instances, so the shutdown
- * instance sees {@code embeddedBroker == null} and the broker is never stopped — leaking the MQTT port across a Tomcat redeploy.</p>
+ * <p>A single broker belongs to each application injector. {@code Initializer} retains this instance for {@link #shutdown()} when the servlet context
+ * is destroyed.</p>
  */
 @Singleton
 public class NotificationMqttTaskModule {
@@ -105,7 +104,7 @@ public class NotificationMqttTaskModule {
      * {@code mqtts}; that narrowing is unrelated to the PEM migration and is not taken here, because no deployment outside this repository can be
      * shown not to use {@code wss://}. Extracted into its own method so the choice is covered by a test rather than resting on a comment.</p>
      */
-    static boolean isSslScheme(URI uri) {
+    public static boolean isSslScheme(URI uri) {
         String scheme = uri.getScheme();
         return "ssl".equals(scheme) || "mqtts".equals(scheme) || "wss".equals(scheme);
     }

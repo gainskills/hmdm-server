@@ -23,7 +23,6 @@ import static com.hmdm.plugins.TenantIsolationSupport.newContainer;
 import static com.hmdm.plugins.TenantIsolationSupport.scalarInt;
 import static com.hmdm.plugins.TenantIsolationSupport.setRetentionDays;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hmdm.plugins.devicelog.persistence.postgres.dao.mapper.PostgresDeviceLogMapper;
 import com.hmdm.plugins.devicelog.rest.json.DeviceLogFilter;
@@ -37,6 +36,7 @@ import org.apache.ibatis.session.SqlSessionFactoryBuilder;
 import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.postgresql.ds.PGSimpleDataSource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -49,10 +49,25 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * the <em>device's</em> owner — rather than on the log row's own denormalized {@code
  * data.customerId}, so a row whose two differ was visible to the wrong tenant.</p>
  *
+ * <p><b>Every test here fails pre-fix on its own isolation assertion.</b> The purge tests are mirrors — each purges as one customer and asserts the
+ * other's rows survive — so neither depends on the other having run. Controls that cannot fail pre-fix ("the caller's own expired row is deleted",
+ * "the caller's in-retention row is kept", "the divergent row exists") are folded into those tests and into the fixture rather than standing as tests
+ * of their own.</p>
+ *
+ * <p>Log rows are recreated per test. Sharing one {@code @BeforeAll} fixture across purge tests makes the pre-fix result order-dependent: whichever
+ * purge runs first deletes every customer's expired rows, and a later test then sees an empty table and fails for a reason unrelated to what it
+ * asserts.</p>
+ *
  * <p>Manual container lifecycle rather than {@code @Testcontainers}/{@code @Container}: this branch is on JUnit 6, and that extension targets the
  * JUnit 5 extension API.</p>
  */
 class TenantIsolationIT {
+
+    /** Older than either customer's retention period in either purge test. */
+    private static final long EXPIRED_TS = daysAgoMillis(30);
+
+    /** Inside the 1-day retention period, so a correctly-scoped purge must keep it. */
+    private static final long FRESH_TS = daysAgoMillis(0);
 
     private static PostgreSQLContainer pg;
     private static Connection connection;
@@ -70,7 +85,7 @@ class TenantIsolationIT {
         pg = newContainer();
         pg.start();
         connection = connect(pg);
-        bootstrapSchema(connection);
+        bootstrapSchema(pg);
         sessionFactory = buildSessionFactory();
         seedFixture();
     }
@@ -125,9 +140,16 @@ class TenantIsolationIT {
         applicationId = scalarInt(
                 connection,
                 "INSERT INTO applications (pkg, name, version) VALUES ('com.example.it', 'IT app', '1.0') RETURNING id");
+    }
 
-        setRetentionDays(connection, "plugin_devicelog_settings", "logsPreservePeriod", customerA, 1);
-        setRetentionDays(connection, "plugin_devicelog_settings", "logsPreservePeriod", customerB, 365);
+    /**
+     * Customers, devices, the user and the application are immutable and created once; the log rows every test mutates are not.
+     *
+     * <p>Retention periods are set per test rather than here, because the two purge tests need them swapped.</p>
+     */
+    @BeforeEach
+    void clearRecords() throws Exception {
+        clearLogs();
     }
 
     private static void insertLog(int dataCustomerId, int deviceId, long createTime) throws Exception {
@@ -146,6 +168,22 @@ class TenantIsolationIT {
         return scalarInt(connection, "SELECT count(*) FROM plugin_devicelog_log WHERE customerId = " + customerId);
     }
 
+    private static int countAt(int customerId, long createTime) throws Exception {
+        return scalarInt(
+                connection,
+                "SELECT count(*) FROM plugin_devicelog_log WHERE customerId = " + customerId + " AND createTime = " + createTime);
+    }
+
+    private static void setRetention(int customerId, int days) throws Exception {
+        setRetentionDays(connection, "plugin_devicelog_settings", "logsPreservePeriod", customerId, days);
+    }
+
+    private static void purgeAs(int customerId) {
+        try (SqlSession session = sessionFactory.openSession(true)) {
+            session.getMapper(PostgresDeviceLogMapper.class).purgeLogRecords(customerId);
+        }
+    }
+
     private static DeviceLogFilter filterAs(int customerId, int userId) {
         DeviceLogFilter filter = new DeviceLogFilter();
         filter.setCustomerId(customerId);
@@ -158,49 +196,70 @@ class TenantIsolationIT {
 
     // ---------------------------------------------------------------- purge
 
+    /**
+     * A keeps logs for 1 day, B for 365. Both hold a 30-day-old row, so A's cutoff catches B's row as well — pre-fix the DELETE carries no customer
+     * predicate and removes it.
+     */
     @Test
-    void purgeAsOneCustomerLeavesTheOtherCustomersRecords() throws Exception {
-        clearLogs();
-        long old = daysAgoMillis(30);
-        insertLog(customerA, deviceA, old);
-        insertLog(customerB, deviceB, old);
+    void purgeAsCustomerAKeepsCustomerBsRecords() throws Exception {
+        setRetention(customerA, 1);
+        setRetention(customerB, 365);
+        insertLog(customerA, deviceA, EXPIRED_TS);
+        insertLog(customerA, deviceA, FRESH_TS);
+        insertLog(customerB, deviceB, EXPIRED_TS);
 
-        try (SqlSession session = sessionFactory.openSession(true)) {
-            session.getMapper(PostgresDeviceLogMapper.class).purgeLogRecords(customerA);
-        }
+        purgeAs(customerA);
 
-        // Positive control: passes before and after the fix.
-        assertEquals(0, countFor(customerA), "customer A's expired record should have been purged");
+        // Controls: pass before and after the fix, and would catch a "fix" that purged nothing at all
+        // or ignored the caller's retention period.
+        assertEquals(0, countAt(customerA, EXPIRED_TS), "customer A's expired record should have been purged");
+        assertEquals(1, countAt(customerA, FRESH_TS), "customer A's record is inside A's own retention period and must survive");
 
         // The assertion that detects the fix.
         assertEquals(
                 1,
-                countFor(customerB),
+                countAt(customerB, EXPIRED_TS),
                 "customer B's record was deleted by a purge run as customer A — the purge is not tenant-scoped");
     }
 
+    /** The mirror of the above, so the fix is detected from both directions and neither test depends on the other. */
     @Test
-    void purgeRespectsTheCallingCustomersOwnRetentionPeriod() throws Exception {
-        clearLogs();
-        insertLog(customerB, deviceB, daysAgoMillis(30));
+    void purgeAsCustomerBKeepsCustomerAsRecords() throws Exception {
+        setRetention(customerA, 365);
+        setRetention(customerB, 1);
+        insertLog(customerB, deviceB, EXPIRED_TS);
+        insertLog(customerB, deviceB, FRESH_TS);
+        insertLog(customerA, deviceA, EXPIRED_TS);
 
-        try (SqlSession session = sessionFactory.openSession(true)) {
-            session.getMapper(PostgresDeviceLogMapper.class).purgeLogRecords(customerB);
-        }
-        assertEquals(1, countFor(customerB), "customer B's record is inside B's own retention period");
+        purgeAs(customerB);
+
+        assertEquals(0, countAt(customerB, EXPIRED_TS), "customer B's expired record should have been purged");
+        assertEquals(1, countAt(customerB, FRESH_TS), "customer B's record is inside B's own retention period and must survive");
+
+        assertEquals(
+                1,
+                countAt(customerA, EXPIRED_TS),
+                "customer A's record was deleted by a purge run as customer B — the purge is not tenant-scoped");
     }
 
     // --------------------------------------------------------------- search
 
     /**
-     * The divergent row is what makes the search test meaningful: its {@code data.customerId} is B while the device it references belongs to A. The
+     * The divergent row is what makes the search tests meaningful: its {@code data.customerId} is B while the device it references belongs to A. The
      * pre-existing predicate is on {@code devices.customerId}, so querying as A returns this row before the fix and excludes it after.
+     *
+     * <p>The fixture asserts the row is really there and really B's. Without that check, a future change that merely deleted the row would make every
+     * search assertion below pass for the wrong reason — the count would be right because nothing existed, not because the predicate scoped it. This
+     * is a fixture precondition rather than a test of its own: on its own it can never fail pre-fix, so as a {@code @Test} it would be an
+     * always-green case.</p>
      */
     private static void seedDivergentRow() throws Exception {
-        clearLogs();
         long recent = daysAgoMillis(0);
         insertLog(customerA, deviceA, recent); // legitimately A's
         insertLog(customerB, deviceA, recent); // B's log row against A's device — the divergent one
+
+        assertEquals(1, countFor(customerB), "fixture: the divergent row should exist and belong to customer B");
+        assertEquals(1, countFor(customerA), "fixture: customer A should own exactly its own row");
     }
 
     @Test
@@ -237,15 +296,5 @@ class TenantIsolationIT {
                 rows.size(),
                 (int) total,
                 "countAll and findAll disagree — the paged list and its total would be inconsistent");
-    }
-
-    @Test
-    void theDivergentRowIsVisibleToItsOwnTenant() throws Exception {
-        // Negative control: the row is not simply invisible to everyone. Customer B owns it by
-        // data.customerId, but the device belongs to A, so B's devices.customerId predicate excludes it.
-        // Both predicates must agree for a row to be returned; assert the row exists in the table so a
-        // future change that merely deletes it cannot make the tests above pass vacuously.
-        seedDivergentRow();
-        assertTrue(countFor(customerB) > 0, "fixture: the divergent row should exist and belong to customer B");
     }
 }

@@ -22,6 +22,7 @@ import com.hmdm.guice.module.*;
 import com.hmdm.notification.guice.module.*;
 import com.hmdm.plugin.PluginList;
 import com.hmdm.plugin.PluginTaskModule;
+import com.hmdm.util.BackgroundTaskRunnerService;
 import com.hmdm.plugin.guice.module.PluginLiquibaseModule;
 import com.hmdm.plugin.guice.module.PluginPersistenceModule;
 import com.hmdm.plugin.guice.module.PluginPlatformTaskModule;
@@ -40,6 +41,7 @@ import java.util.List;
 public final class Initializer extends GuiceServletContextListener {
     private ServletContext context;
     private Injector injector;
+    private final List<Runnable> taskShutdowns = new LinkedList<>();
 
     public Initializer() {}
 
@@ -50,6 +52,7 @@ public final class Initializer extends GuiceServletContextListener {
         PrintWriter errorWriter = new PrintWriter(errorOut);
         try {
             this.injector = Guice.createInjector(Stage.PRODUCTION, this.getModules());
+            taskShutdowns.add(this.injector.getInstance(BackgroundTaskRunnerService.class)::shutdown);
             success = true;
         } catch (Exception e) {
             System.err.println("[HMDM-INITIALIZER]: Unexpected error during injector initialization: " + e);
@@ -180,15 +183,16 @@ public final class Initializer extends GuiceServletContextListener {
 
     @Override
     public void contextDestroyed(ServletContextEvent servletContextEvent) {
-        if (this.injector != null) {
+        // Retain the exact instances started by this context; Guice lookups here can
+        // otherwise create new services while the old workers continue running.
+        for (Runnable shutdown : taskShutdowns.reversed()) {
             try {
-                final NotificationMqttTaskModule mqttModule =
-                        this.injector.getInstance(NotificationMqttTaskModule.class);
-                mqttModule.shutdown();
+                shutdown.run();
             } catch (Exception e) {
-                System.err.println("[HMDM-INITIALIZER]: Error shutting down MQTT broker: " + e);
+                System.err.println("[HMDM-INITIALIZER]: Error shutting down application task: " + e);
             }
         }
+        taskShutdowns.clear();
         super.contextDestroyed(servletContextEvent);
     }
 
@@ -218,10 +222,12 @@ public final class Initializer extends GuiceServletContextListener {
 
     private void initTasks() {
         final NotificationTaskModule notificationTaskModule = this.injector.getInstance(NotificationTaskModule.class);
+        taskShutdowns.add(notificationTaskModule::shutdown);
         notificationTaskModule.init();
 
         final NotificationMqttTaskModule notificationMqttTaskModule =
                 this.injector.getInstance(NotificationMqttTaskModule.class);
+        taskShutdowns.add(notificationMqttTaskModule::shutdown);
         notificationMqttTaskModule.init();
 
         final PluginPlatformTaskModule pluginPlatformTaskModule =
@@ -242,6 +248,7 @@ public final class Initializer extends GuiceServletContextListener {
         }
 
         final EventListenerModule eventListenerModule = this.injector.getInstance(EventListenerModule.class);
+        taskShutdowns.add(eventListenerModule::shutdown);
         eventListenerModule.init();
 
         final StartupTaskModule startupTaskModule = this.injector.getInstance(StartupTaskModule.class);

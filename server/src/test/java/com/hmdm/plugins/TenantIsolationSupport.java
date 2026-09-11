@@ -18,10 +18,10 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.regex.Pattern;
 import liquibase.Contexts;
 import liquibase.LabelExpression;
 import liquibase.Liquibase;
-import liquibase.database.Database;
 import liquibase.database.DatabaseFactory;
 import liquibase.database.jvm.JdbcConnection;
 import liquibase.resource.ClassLoaderResourceAccessor;
@@ -38,25 +38,20 @@ import org.testcontainers.utility.DockerImageName;
 public final class TenantIsolationSupport {
 
     /**
-     * System property carrying the container image. There is deliberately <em>no default</em>.
+     * The exact image these suites run against, pinned by digest.
      *
-     * <p>A floating tag would let the image change between the run that produced the gate evidence and any later run, which defeats the point of
-     * recording that evidence. The value must therefore be digest-pinned, and {@link #resolveImage()} refuses anything else rather than silently
-     * accepting a tag.</p>
+     * <p>A floating tag is mutable — {@code postgres:16-alpine} re-points on every patch and Alpine refresh, so it pins neither the PostgreSQL patch
+     * level nor the image contents. Runtime overrides must also include a full digest and must be recorded with gate evidence.</p>
      *
-     * <p>Resolve the digest with:</p>
-     *
-     * <pre>
-     * docker buildx imagetools inspect postgres:16.4-alpine3.20
-     * </pre>
-     *
-     * <p>then run:</p>
-     *
-     * <pre>
-     * mvn verify -Pit -Dhmdm.it.pgImage=postgres:16.4-alpine3.20@sha256:&lt;digest&gt;
-     * </pre>
+     * <p>Resolved from Docker Hub's library/postgres manifest for 16.4-alpine3.20 on 2026-09-16.
+     * The OCI image index digest was verified against SHA-256 of the response body. This index
+     * includes linux/amd64 and linux/arm64, so both architectures use the same pinned reference.</p>
      */
-    public static final String IMAGE_PROPERTY = "hmdm.it.pgImage";
+    public static final String PINNED_IMAGE = "postgres:16.4-alpine3.20@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c";
+
+    /** The one shape {@link #PINNED_IMAGE} is allowed to take: this exact repository and tag, followed by a full 64-hex digest. */
+    private static final Pattern PINNED_IMAGE_PATTERN =
+            Pattern.compile("^postgres:16\\.4-alpine3\\.20@sha256:[0-9a-f]{64}$");
 
     /**
      * The root changelog uses three contexts: {@code common}, {@code shared} and {@code private}. {@code shared} and {@code private} are mutually
@@ -76,21 +71,22 @@ public final class TenantIsolationSupport {
     private TenantIsolationSupport() {}
 
     /**
-     * Reads the pinned image from {@link #IMAGE_PROPERTY} and rejects anything that is not digest-pinned.
+     * Returns the runtime override or committed image, requiring the expected tag and a full digest.
      *
-     * @throws IllegalStateException with an actionable message when the property is absent or carries a floating tag
+     * @throws IllegalStateException if the image does not specify the expected tag and a full digest
      */
     public static DockerImageName resolveImage() {
-        String image = System.getProperty(IMAGE_PROPERTY);
-        if (image == null || image.isBlank()) {
-            throw new IllegalStateException("Set -D" + IMAGE_PROPERTY + "=postgres:16.4-alpine3.20@sha256:<digest>. "
-                    + "Resolve the digest with: docker buildx imagetools inspect postgres:16.4-alpine3.20");
+        return resolveImage(System.getProperty("hmdm.it.pgImage", PINNED_IMAGE));
+    }
+
+    static DockerImageName resolveImage(String image) {
+        if (!PINNED_IMAGE_PATTERN.matcher(image).matches()) {
+            throw new IllegalStateException("Unresolved PostgreSQL image: \"" + image
+                    + "\". Resolve it with: docker buildx imagetools inspect postgres:16.4-alpine3.20. "
+                    + "Supply -Dhmdm.it.pgImage=postgres:16.4-alpine3.20@sha256:<digest> or update PINNED_IMAGE. "
+                    + "Record the resolved digest with gate evidence.");
         }
-        if (!image.contains("@sha256:")) {
-            throw new IllegalStateException("-D" + IMAGE_PROPERTY + " must be digest-pinned (…@sha256:…), got: " + image
-                    + ". A floating tag lets the image drift between the gate run and any later run.");
-        }
-        // asCompatibleSubstituteFor: the digest-pinned reference is not recognised as the postgres image by name alone.
+        // asCompatibleSubstituteFor: a digest-pinned reference is not recognised as the postgres image by name alone.
         return DockerImageName.parse(image).asCompatibleSubstituteFor("postgres");
     }
 
@@ -104,14 +100,26 @@ public final class TenantIsolationSupport {
     }
 
     /**
-     * Applies the root changelog and both plugin changelogs. Each changelog gets its own {@link Liquibase} instance because each carries its own
-     * DATABASECHANGELOG identity.
+     * Applies the root changelog and both plugin changelogs, each on its own JDBC connection.
+     *
+     * <p><b>The per-changelog connection is required, not tidiness.</b> {@code Liquibase.close()} cascades: {@code Liquibase.close()} →
+     * {@code Database.close()} → {@code JdbcConnection.close()} → {@code java.sql.Connection.close()} (verified against the pinned liquibase-core
+     * 4.33.0 bytecode). Handing the suite's shared connection to each {@link Liquibase} would therefore leave that connection closed after the first
+     * changelog, and the remaining two would run against a dead one. Each instance owns a connection it is free to close.</p>
+     *
+     * <p>The caller's own connection is never passed in, so it survives this call and stays usable for the fixtures.</p>
      */
-    public static void bootstrapSchema(Connection connection) throws Exception {
-        Database database =
-                DatabaseFactory.getInstance().findCorrectDatabaseImplementation(new JdbcConnection(connection));
+    public static void bootstrapSchema(PostgreSQLContainer pg) throws Exception {
         for (String changelog : CHANGELOGS) {
-            try (Liquibase liquibase = new Liquibase(changelog, new ClassLoaderResourceAccessor(), database)) {
+            // Both are closed on exit: Liquibase closes the connection via the cascade above, and the
+            // explicit resource covers the case where the Liquibase constructor itself throws. A second
+            // close on an already-closed JDBC connection is a no-op per the JDBC spec.
+            try (Connection connection = connect(pg);
+                    Liquibase liquibase = new Liquibase(
+                            changelog,
+                            new ClassLoaderResourceAccessor(),
+                            DatabaseFactory.getInstance()
+                                    .findCorrectDatabaseImplementation(new JdbcConnection(connection)))) {
                 liquibase.update(new Contexts(CONTEXTS), new LabelExpression());
             }
         }

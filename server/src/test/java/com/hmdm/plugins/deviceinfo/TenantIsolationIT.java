@@ -34,6 +34,7 @@ import org.apache.ibatis.session.SqlSessionFactoryBuilder;
 import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.postgresql.ds.PGSimpleDataSource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -44,10 +45,25 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * <p>Purge isolation only. A Device Info <em>search</em> test is deliberately absent from this suite: it would pass both before and after the fix, so
  * it would prove nothing.</p>
  *
+ * <p><b>Every test here fails pre-fix on its own isolation assertion.</b> The two tests are mirrors — each purges as one customer and asserts the
+ * other's records survive — so neither depends on the other having run, and neither is a positive-control-only case. The controls that cannot fail
+ * pre-fix ("the caller's own expired record is deleted", "the caller's in-retention record is kept") are folded in as extra assertions on the same
+ * fixture rather than standing as tests of their own.</p>
+ *
+ * <p>Records are recreated per test. Sharing one {@code @BeforeAll} fixture across purge tests makes the pre-fix result order-dependent: whichever
+ * purge runs first deletes every customer's expired rows, and a later test then sees an empty table and fails for a reason that has nothing to do
+ * with what it asserts.</p>
+ *
  * <p>Manual container lifecycle rather than {@code @Testcontainers}/{@code @Container}: this branch is on JUnit 6, and that extension targets the
  * JUnit 5 extension API.</p>
  */
 class TenantIsolationIT {
+
+    /** Older than either customer's retention period in either test. */
+    private static final long EXPIRED_TS = daysAgoMillis(30);
+
+    /** Inside the 1-day retention period, so a correctly-scoped purge must keep it. */
+    private static final long FRESH_TS = daysAgoMillis(0);
 
     private static PostgreSQLContainer pg;
     private static Connection connection;
@@ -63,9 +79,15 @@ class TenantIsolationIT {
         pg = newContainer();
         pg.start();
         connection = connect(pg);
-        bootstrapSchema(connection);
+        bootstrapSchema(pg);
         sessionFactory = buildSessionFactory();
-        seedFixture();
+
+        customerA = createCustomer(connection, "tenantA");
+        customerB = createCustomer(connection, "tenantB");
+
+        // Distinct device numbers per customer: devices.number is UNIQUE and ids are global.
+        deviceA = createDevice(connection, customerA, "IT-A-0001");
+        deviceB = createDevice(connection, customerB, "IT-B-0001");
     }
 
     @AfterAll
@@ -76,6 +98,12 @@ class TenantIsolationIT {
         if (pg != null) {
             pg.stop();
         }
+    }
+
+    /** Customers and devices are immutable and stay; the records every test mutates do not. */
+    @BeforeEach
+    void clearRecords() throws Exception {
+        exec(connection, "DELETE FROM plugin_deviceinfo_deviceParams");
     }
 
     private static SqlSessionFactory buildSessionFactory() {
@@ -94,31 +122,6 @@ class TenantIsolationIT {
         return new SqlSessionFactoryBuilder().build(configuration);
     }
 
-    /**
-     * Customer A keeps data for 1 day. Both A's and B's records are older than that cutoff, so a purge run as A deletes A's record either way — that
-     * assertion is a positive control and proves nothing on its own.
-     *
-     * <p><b>"B's record is retained" is the assertion that detects the fix.</b></p>
-     */
-    private static void seedFixture() throws Exception {
-        customerA = createCustomer(connection, "tenantA");
-        customerB = createCustomer(connection, "tenantB");
-
-        // Distinct device numbers per customer: devices.number is UNIQUE and ids are global.
-        deviceA = createDevice(connection, customerA, "IT-A-0001");
-        deviceB = createDevice(connection, customerB, "IT-B-0001");
-
-        setRetentionDays(connection, "plugin_deviceinfo_settings", "dataPreservePeriod", customerA, 1);
-        setRetentionDays(connection, "plugin_deviceinfo_settings", "dataPreservePeriod", customerB, 365);
-
-        long old = daysAgoMillis(30);
-        insertRecord(customerA, deviceA, old);
-        insertRecord(customerB, deviceB, old);
-
-        assertEquals(1, countFor(customerA), "fixture: customer A should start with one record");
-        assertEquals(1, countFor(customerB), "fixture: customer B should start with one record");
-    }
-
     private static void insertRecord(int customerId, int deviceId, long ts) throws Exception {
         exec(
                 connection,
@@ -126,34 +129,61 @@ class TenantIsolationIT {
                         + customerId + ", " + ts + ")");
     }
 
-    private static int countFor(int customerId) throws Exception {
+    private static int countAt(int customerId, long ts) throws Exception {
         return scalarInt(
-                connection, "SELECT count(*) FROM plugin_deviceinfo_deviceParams WHERE customerId = " + customerId);
+                connection,
+                "SELECT count(*) FROM plugin_deviceinfo_deviceParams WHERE customerId = " + customerId + " AND ts = " + ts);
     }
 
-    @Test
-    void purgeAsOneCustomerLeavesTheOtherCustomersRecords() throws Exception {
+    private static void purgeAs(int customerId) {
         try (SqlSession session = sessionFactory.openSession(true)) {
-            session.getMapper(DeviceInfoMapper.class).purgeDeviceInfoRecords(customerA);
+            session.getMapper(DeviceInfoMapper.class).purgeDeviceInfoRecords(customerId);
         }
+    }
 
-        // Positive control: passes before and after the fix.
-        assertEquals(0, countFor(customerA), "customer A's expired record should have been purged");
+    /**
+     * A keeps data for 1 day, B for 365. Both hold a 30-day-old record, so A's cutoff catches B's record as well — pre-fix the DELETE carries no
+     * customer predicate and removes it.
+     */
+    @Test
+    void purgeAsCustomerAKeepsCustomerBsRecords() throws Exception {
+        setRetentionDays(connection, "plugin_deviceinfo_settings", "dataPreservePeriod", customerA, 1);
+        setRetentionDays(connection, "plugin_deviceinfo_settings", "dataPreservePeriod", customerB, 365);
+        insertRecord(customerA, deviceA, EXPIRED_TS);
+        insertRecord(customerA, deviceA, FRESH_TS);
+        insertRecord(customerB, deviceB, EXPIRED_TS);
 
-        // The assertion that detects the fix. Pre-fix the DELETE has no customerId predicate of its own,
-        // so it removes every customer's records older than A's cutoff.
+        purgeAs(customerA);
+
+        // Controls: pass before and after the fix, and would catch a "fix" that purged nothing at all
+        // or ignored the caller's retention period.
+        assertEquals(0, countAt(customerA, EXPIRED_TS), "customer A's expired record should have been purged");
+        assertEquals(1, countAt(customerA, FRESH_TS), "customer A's record is inside A's own retention period and must survive");
+
+        // The assertion that detects the fix.
         assertEquals(
                 1,
-                countFor(customerB),
+                countAt(customerB, EXPIRED_TS),
                 "customer B's record was deleted by a purge run as customer A — the purge is not tenant-scoped");
     }
 
+    /** The mirror of the above, so the fix is detected from both directions and neither test depends on the other. */
     @Test
-    void purgeRespectsTheCallingCustomersOwnRetentionPeriod() throws Exception {
-        // B keeps data for 365 days and its record is 30 days old, so purging as B must delete nothing.
-        try (SqlSession session = sessionFactory.openSession(true)) {
-            session.getMapper(DeviceInfoMapper.class).purgeDeviceInfoRecords(customerB);
-        }
-        assertEquals(1, countFor(customerB), "customer B's record is inside B's own retention period");
+    void purgeAsCustomerBKeepsCustomerAsRecords() throws Exception {
+        setRetentionDays(connection, "plugin_deviceinfo_settings", "dataPreservePeriod", customerA, 365);
+        setRetentionDays(connection, "plugin_deviceinfo_settings", "dataPreservePeriod", customerB, 1);
+        insertRecord(customerB, deviceB, EXPIRED_TS);
+        insertRecord(customerB, deviceB, FRESH_TS);
+        insertRecord(customerA, deviceA, EXPIRED_TS);
+
+        purgeAs(customerB);
+
+        assertEquals(0, countAt(customerB, EXPIRED_TS), "customer B's expired record should have been purged");
+        assertEquals(1, countAt(customerB, FRESH_TS), "customer B's record is inside B's own retention period and must survive");
+
+        assertEquals(
+                1,
+                countAt(customerA, EXPIRED_TS),
+                "customer A's record was deleted by a purge run as customer B — the purge is not tenant-scoped");
     }
 }

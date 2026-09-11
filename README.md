@@ -124,13 +124,86 @@ file from the sample
     postgres=# \q
     ```
 
-3. Run the installer script (as root)
+3. Run the installer script from the project directory (as root)
 
     ```bash
     sudo ./hmdm_install.sh
     ```
 
 4. On success, the installer script provides you with the URL. Open Headwind MDM in browser.
+
+### HTTPS configuration
+
+The installer offers certificate provisioning through Certbot. Its deploy hook
+publishes certificate files under `/etc/hmdm/tls/current` with permissions for
+Tomcat and the embedded MQTT broker.
+
+Automatic Tomcat configuration is **opt-in**: it replaces the entire `server.xml`
+with [install/server_template.xml](install/server_template.xml), which declares the
+HTTPS connector on port 8443 and Tomcat's built-in TLS certificate reload listener.
+The template uses the listener's default settings. Certificate loading and HTTPS
+reloads are handled by Tomcat, not by a shell certificate parser.
+
+Use automatic replacement only for a dedicated, uncustomized Tomcat installation.
+Custom connectors, virtual hosts and realms are not preserved. Otherwise, decline
+replacement and merge the template's HTTPS connector into the appropriate
+`<Service>` and its TLS reload listener directly under `<Server>`, then restart
+Tomcat and verify HTTPS. Declining replacement does not complete HTTPS setup.
+
+The installer saves the previous configuration as `server.xml~`, stages and
+syntax-checks the template, preserves file ownership and permissions, and replaces
+the live file before requesting a restart. A failed restart stops installation;
+there is no automatic rollback. See [TLS recovery](#tls-recovery) below.
+
+### TLS recovery
+
+Run recovery from the project directory, keeping the original domain and scripts
+directory. Both modes skip database setup and WAR deployment:
+
+```bash
+# Resume configuration using the certificate already published under current.
+sudo env HMDM_SKIP_ISSUANCE=1 ./hmdm_install.sh
+
+# Alternatively, retry publication from the existing Certbot lineage.
+sudo env HMDM_REPUBLISH_ONLY=1 ./hmdm_install.sh
+```
+
+Choose one mode according to the failure; do not run both commands routinely.
+The renewal script's status 2 means publication succeeded but its recovery restart
+failed. Check Tomcat's logs before resuming with skip-issuance mode. Status 3 means
+publication failed; resolve the deploy-hook error and use republish mode.
+
+Other failures, including interruptions, do not establish whether publication
+finished. Inspect the preceding errors, `/etc/hmdm/tls/current`, and the lineage
+recorded in `/etc/hmdm/tls/hook.env` before choosing recovery. If a certificate is
+already available, do not request another just to retry configuration.
+
+#### Failed Tomcat restart
+
+Automatic setup leaves the new `server.xml` in place on restart failure and exits
+non-zero. Tomcat may be unavailable. It does not restore the backup or attempt
+another restart. Inspect the service logs (replace `tomcat10` if needed):
+
+```bash
+sudo journalctl -u tomcat10 -n 50
+```
+
+Correct the configuration, or manually restore `server.xml~` beside `server.xml`
+and restart the service. The backup is not guaranteed to be valid or HTTP-only.
+Restoring configuration does not change the published certificate. Save any backup
+you want to retain before another automatic setup, which overwrites `server.xml~`.
+When resuming with skip-issuance mode, decline template replacement if you want to
+retain your manual configuration changes.
+
+Template and installer-flow checks can be run without issuing certificates:
+
+```bash
+bash install/tests/server-template-test.sh
+bash install/tests/tls-config-flow-test.sh
+```
+
+These require `xmllint`. The flow test mocks service and ownership operations;
+passing it does not verify live Tomcat or MQTT certificate reloads.
 
 ## REST push API
 

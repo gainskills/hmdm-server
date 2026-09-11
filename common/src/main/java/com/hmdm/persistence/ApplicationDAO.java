@@ -486,6 +486,8 @@ public class ApplicationDAO extends AbstractLinkedDAO<Application, ApplicationCo
     @Transactional
     public void updateApplicationVersionConfigurations(LinkConfigurationsToAppVersionRequest request, User user) {
         final int applicationVersionId = request.getApplicationVersionId();
+        // Validate every target before deleting or replacing any existing links.
+        requireOwnedConfigurations(request.getConfigurations());
         this.removeApplicationConfigurationsByVersionId(applicationVersionId, user);
 
         // If this version is set for installation, then other versions of same app must be set for de-installation
@@ -541,6 +543,15 @@ public class ApplicationDAO extends AbstractLinkedDAO<Application, ApplicationCo
         }
     }
 
+    private void requireOwnedConfigurations(List<ApplicationVersionConfigurationLink> configurations) {
+        int customerId = SecurityContext.get().getCurrentUser().orElseThrow(SecurityException::onAnonymousAccess).getCustomerId();
+        for (ApplicationVersionConfigurationLink link : configurations) {
+            if (!mapper.isConfigurationOwnedByCustomer(link.getConfigurationId(), customerId)) {
+                throw SecurityException.onConfigurationAccessViolation(link.getConfigurationId());
+            }
+        }
+    }
+
     public void insertApplicationVersionConfigurations(
             Integer applicationVersionId, List<ApplicationVersionConfigurationLink> configurations) {
         if (configurations != null && !configurations.isEmpty()) {
@@ -550,6 +561,7 @@ public class ApplicationDAO extends AbstractLinkedDAO<Application, ApplicationCo
                     SecurityContext.get().getCurrentUser().get().getCustomerId();
 
             if (application.isCommon() || application.getCustomerId() == userCustomerId) {
+                requireOwnedConfigurations(configurations);
                 this.mapper.insertApplicationVersionConfigurations(
                         application.getId(), applicationVersionId, configurations);
             } else {
