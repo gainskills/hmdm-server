@@ -495,6 +495,7 @@ document.localization['ja_JP'] = {
     'form.application.arch.warning': 'この APK は ${arch} のみに最適化されており、すべてのデバイスで動作するとは限りません。 別の CPU アーキテクチャ用に最適化された別の APK をアップロードすることをお勧めします。 この APK をすべてのデバイスで使用するには、[ユニバーサル APK] を選択します。',
     'form.application.arch.success': 'このアプリには両方の CPU アーキテクチャの APK が含まれています',
     'form.application.version.exists': 'このバージョンの APK は既に存在します',
+    'form.application.generic.name': '一般的な名前は推奨されません。{name}-{version}.apk を使用してください',
     'form.application.url.armeabi': 'armeabi-v7aのURL',
     'form.application.url.arm64': 'arm64-v8aのURL',
     'form.application.name': 'アプリケーション名',

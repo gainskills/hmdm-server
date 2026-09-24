@@ -567,6 +567,7 @@ document.localization['vi_VN'] = {
     'form.application.arch.warning': 'APK này chỉ được tối ưu cho ${arch} và có thể không hoạt động trên tất cả thiết bị. Nên tải lên một APK khác được tối ưu cho kiến trúc CPU khác. Để dùng APK này trên mọi thiết bị, chọn "Universal APK".',
     'form.application.arch.success': 'Ứng dụng này chứa APK cho cả hai kiến trúc CPU',
     'form.application.version.exists': 'APK cho phiên bản này đã tồn tại',
+    'form.application.generic.name': 'Không nên sử dụng tên chung. Hãy dùng {name}-{version}.apk',
     'form.application.url.armeabi': 'URL cho armeabi-v7a',
     'form.application.url.arm64': 'URL cho arm64-v8a',
     'form.application.name': 'Tên ứng dụng',

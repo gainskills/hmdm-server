@@ -495,6 +495,7 @@ document.localization['ru_RU'] = {
     'form.application.arch.warning': 'Этот APK оптимизирован только для ${arch} и может работать не на всех устройствах. Рекомендуем загрузить еще один APK для другой архитектуры CPU. Для использования APK на всех устройствах, выберите "Универсальный APK".',
     'form.application.arch.success': 'Это приложение содержит APK-файлы для обеих архитектур CPU.',
     'form.application.version.exists': 'APK для этой версии уже существует',
+    'form.application.generic.name': 'Не рекомендуется использовать общие имена. Используйте {name}-{version}.apk',
     'form.application.url.armeabi': 'URL для armeabi-v7a',
     'form.application.url.arm64': 'URL для arm64-v8a',
     'form.application.name': 'Название приложения',

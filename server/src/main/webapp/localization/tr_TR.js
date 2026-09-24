@@ -495,6 +495,7 @@ document.localization['tr_TR'] = {
 	'form.application.arch.warning': 'Bu APK yalnızca ${arch} için optimize edilmiştir ve tüm cihazlarda çalışmayabilir. Başka bir CPU mimarisi için optimize edilmiş başka bir APK yüklemeniz önerilir. Bu APK\'yi tüm cihazlarda kullanmak için "Evrensel APK"yı seçin.',
 	'form.application.arch.success': 'Bu uygulama her iki CPU mimarisi için de APK\'ler içeriyor',
 	'form.application.version.exists': 'Bu sürüm için APK zaten mevcut',
+	'form.application.generic.name': 'Genel adlar önerilmez. {name}-{version}.apk kullanın',
 	'form.application.url.armeabi': 'armeabi-v7a için URL',
 	'form.application.url.arm64': 'arm64-v8a için URL',
 	'form.application.name': 'Uygulama Adı',

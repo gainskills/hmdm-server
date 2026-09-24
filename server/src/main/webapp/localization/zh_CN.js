@@ -495,6 +495,7 @@ document.localization['zh_CN'] = {
     'form.application.arch.warning': '此 APK 仅针对 ${arch} 进行了优化，可能无法在所有设备上运行。 建议上传另一个针对另一个 CPU arch 优化的 APK。 要在所有设备上使用此 APK，请选择“通用 APK”。',
     'form.application.arch.success': '这个应用程式包含适用于两种CPU架构的APK',
     'form.application.version.exists': '此版本的 APK 已存在',
+    'form.application.generic.name': '不建议使用通用名称。请使用 {name}-{version}.apk',
     'form.application.url.armeabi': 'armeabi-v7a 的 URL',
     'form.application.url.arm64': 'arm64-v8a 的 URL',
     'form.application.name': "应用程式名称",

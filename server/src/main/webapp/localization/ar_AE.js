@@ -495,6 +495,7 @@ document.localization['ar_AE'] = {
     'form.application.arch.warning': 'تم تحسين ملف APK هذا لـ ${arch} فقط. وقد لا تعمل على جميع الأجهزة. يوصى بتحميل APK آخر محسّن لقوس وحدة معالجة مركزية آخر. لاستخدام ملف APK هذا على جميع الأجهزة, حدد ملف APK العام.',
     'form.application.arch.success': 'يحتوي هذا التطبيق على ملفات APK لكل من بنيات وحدة المعالجة المركزية',
     'form.application.version.exists': 'APK لهذا الإصدار موجود بالفعل',
+    'form.application.generic.name': 'لا يُنصح باستخدام الأسماء العامة. استخدم {name}-{version}.apk',
     'form.application.url.armeabi': 'URL الخاص بـ armeabi-v7a',
     'form.application.url.arm64': 'URL الخاص بـ arm64-v8a',
     "form.application.name": 'اسم التطبيق',

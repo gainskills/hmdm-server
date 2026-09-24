@@ -494,6 +494,7 @@ document.localization['it_IT'] = {
 	'form.application.arch.warning': 'Questo APK è ottimizzato solo per ${arch} e potrebbe non funzionare su tutti i dispositivi. Si consiglia di caricare un altro APK ottimizzato per un\'altra architettura CPU. Per usare questo APK su tutti i dispositivi, seleziona "APK universale".',
 	'form.application.arch.success': 'Questa app contiene APK per entrambe le architetture CPU',
 	'form.application.version.exists': 'L\'APK per questa versione esiste già',
+	'form.application.generic.name': 'I nomi generici non sono consigliati. Utilizzare {name}-{version}.apk',
 	'form.application.url.armeabi': 'URL per armeabi-v7a',
 	'form.application.url.arm64': 'URL per arm64-v8a',
 	'form.application.name': 'Nome applicazione',
