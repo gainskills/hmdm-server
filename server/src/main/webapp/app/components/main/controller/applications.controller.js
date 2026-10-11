@@ -295,6 +295,11 @@ angular.module('headwind-kiosk')
             if (files.length > 0) {
                 $scope.fileName = files[0].name;
                 if ($scope.fileName.endsWith(".apk") || $scope.fileName.endsWith(".xapk")) {
+                    if ($scope.fileName.startsWith("app-debug") || $scope.fileName.startsWith("app-release")) {
+                        $scope.appNameWarning = localization.localize('form.application.generic.name');
+                    } else {
+                        $scope.appNameWarning = null;
+                    }
                     $scope.loading = true;
                     $scope.successMessage = localization.localize('success.uploading.file');
                 } else {
@@ -667,7 +672,7 @@ angular.module('headwind-kiosk')
     .controller('ApplicationConfigurationsModalController',
         function ($scope, $modalInstance, applicationService, application, localization, confirmModal, configurationService,
                   alertService) {
-
+            $scope.loading = false;
             $scope.localizeRenewVersionTitle = function (appConfigurationLink) {
                 let localizedText = localization.localize('configuration.app.version.upgrade.message')
                     .replace('${installedVersion}', appConfigurationLink.currentVersionText)
@@ -750,6 +755,7 @@ angular.module('headwind-kiosk')
             loadData();
 
             $scope.save = function () {
+                $scope.loading = true;
                 $scope.errorMessage = '';
 
                 var request = {"applicationId": application.id};
@@ -768,6 +774,7 @@ angular.module('headwind-kiosk')
                     if (response.status === 'OK') {
                         $modalInstance.close();
                     } else {
+                        $scope.loading = false;
                         $scope.errorMessage = localization.localizeServerResponse(response);
                     }
                 });
@@ -1066,7 +1073,7 @@ angular.module('headwind-kiosk')
     .controller('ApplicationVersionConfigurationsModalController',
         function ($scope, $modalInstance, applicationService, applicationVersion, localization, confirmModal, configurationService,
                   alertService) {
-
+            $scope.loading = false;
             $scope.localizeRenewVersionTitle = function (appConfigurationLink) {
                 let localizedText = localization.localize('configuration.app.version.upgrade.message')
                     .replace('${installedVersion}', appConfigurationLink.currentVersionText)
@@ -1155,6 +1162,7 @@ angular.module('headwind-kiosk')
             };
 
             $scope.save = function () {
+                $scope.loading = true;
                 $scope.errorMessage = '';
 
                 var request = {"applicationVersionId": applicationVersion.id};
@@ -1172,6 +1180,7 @@ angular.module('headwind-kiosk')
                     if (response.status === 'OK') {
                         $modalInstance.close();
                     } else {
+                        $scope.loading = false;
                         $scope.errorMessage = localization.localizeServerResponse(response);
                     }
                 }, alertService.onRequestFailure);

@@ -32,7 +32,6 @@ import java.util.Map;
 
 import com.google.inject.Singleton;
 import com.hmdm.event.ConfigurationUpdatedEvent;
-import com.hmdm.event.DeviceInfoUpdatedEvent;
 import com.hmdm.event.EventService;
 import com.hmdm.persistence.domain.Application;
 import com.hmdm.persistence.domain.ApplicationSetting;
@@ -92,6 +91,12 @@ public class ConfigurationDAO extends AbstractLinkedDAO<Configuration, Applicati
         return getSingleRecord(customerId -> this.mapper.getConfigurationByName(customerId, name));
     }
 
+    public boolean hasConfigurationAccess(int configurationId) {
+        Configuration c = getSingleRecordWithCurrentUser(currentUser ->
+                this.mapper.checkConfigurationAccess(currentUser.getCustomerId(), currentUser.getId(), configurationId));
+        return c != null;
+    }
+
     public void insertConfiguration(Configuration config) {
         insertRecord(config, configuration -> {
             this.mapper.insertConfiguration(configuration);
@@ -149,6 +154,11 @@ public class ConfigurationDAO extends AbstractLinkedDAO<Configuration, Applicati
                     this.mapper.removeConfigurationFilesById(configuration.getId());
                     final List<ConfigurationFile> files = configuration.getFiles();
                     if (files != null && !files.isEmpty()) {
+                        files.forEach(file -> {
+                            if (!file.isOverrideDevicePath()) {
+                                file.setDevicePath(null);
+                            }
+                        });
                         files.stream()
                                 .filter(file -> file.getExternalUrl() != null)
                                 .forEach(file -> {

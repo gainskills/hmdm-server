@@ -129,7 +129,21 @@ public class QRCodeResource {
         try {
             Configuration configuration = this.unsecureDAO.getConfigurationByQRCodeKey(id);
             if (configuration != null) {
-                String res = generateExtrasBundle(deviceID, createOnDemand, configuration, groups, useId, req.getContextPath());
+                String miscExtrasEntry = "";
+                if (configuration.getAdminExtras() != null) {
+                    miscExtrasEntry = configuration.getAdminExtras().trim();
+                    if (!miscExtrasEntry.equals("")) {
+                        miscExtrasEntry = ",\n" + miscExtrasEntry;
+                    }
+                }
+                String res = generateExtrasBundle(
+                        deviceID,
+                        createOnDemand,
+                        configuration,
+                        groups,
+                        useId,
+                        req.getContextPath(),
+                        miscExtrasEntry);
                 return javax.ws.rs.core.Response.ok(res).build();
             } else {
                 logger.error("Configuration not found for key: {}", id);
@@ -168,7 +182,7 @@ public class QRCodeResource {
                                                     @QueryParam("useId") @ApiParam("Which parameter to use as a device ID") String useId,
                                                     @QueryParam("group") @ApiParam("Groups to assign when creating a device") List<String> groups,
                                                     @Context HttpServletRequest req) {
-        logger.info("Generating QR-code image for configuration key: {}", id);
+        logger.debug("Generating QR-code image for configuration key: {}", id);
         try {
             Configuration configuration = this.unsecureDAO.getConfigurationByQRCodeKey(id);
             if (configuration != null) {
@@ -221,6 +235,14 @@ public class QRCodeResource {
                             }
                         }
 
+                        String miscExtrasEntry = "";
+                        if (configuration.getAdminExtras() != null) {
+                            miscExtrasEntry = configuration.getAdminExtras().trim();
+                            if (!miscExtrasEntry.equals("")) {
+                                miscExtrasEntry = ",\n" + miscExtrasEntry;
+                            }
+                        }
+
                         StringBuffer sb = new StringBuffer("{\n" +
                                 "\"android.app.extra.PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME\":\"" + appMain.getPkg() +"/" + configuration.getEventReceivingComponent() + "\",\n" +
                                 "\"android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION\":" + JSONObject.quote(apkUrl) + ",\n" +
@@ -232,11 +254,18 @@ public class QRCodeResource {
                         }
                         sb.append(miscQrParametersEntry +
                                 "\"android.app.extra.PROVISIONING_ADMIN_EXTRAS_BUNDLE\": " +
-                                generateExtrasBundle(deviceID, createOnDemand, configuration, groups, useId, req.getContextPath()) +
+                                generateExtrasBundle(
+                                        deviceID,
+                                        createOnDemand,
+                                        configuration,
+                                        groups,
+                                        useId,
+                                        req.getContextPath(),
+                                        miscExtrasEntry) +
                                 "}\n");
                         final String s = sb.toString();
 
-                        logger.info("The base for QR code generation:\n{}", s);
+                        logger.debug("The base for QR code generation:\n{}", s);
 
                         return javax.ws.rs.core.Response.ok( (StreamingOutput) output -> {
                             int imageSize = 250;
@@ -244,7 +273,7 @@ public class QRCodeResource {
                                 imageSize = size;
                             }
                             try {
-                                QRCode.from(s).to(ImageType.PNG).withSize(imageSize, imageSize).writeTo(output);
+                                QRCode.from(s).withCharset("UTF-8").to(ImageType.PNG).withSize(imageSize, imageSize).writeTo(output);
                                 output.flush();
                             } catch ( Exception e ) { e.printStackTrace(); }
                         } )
@@ -270,7 +299,7 @@ public class QRCodeResource {
     }
 
     private String calculateApkHash(String apkUrl) throws NoSuchAlgorithmException, IOException {
-        logger.info("Digesting the application file: {}", apkUrl);
+        logger.debug("Digesting the application file: {}", apkUrl);
 
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         byte[] buffer= new byte[8192];
@@ -304,12 +333,12 @@ public class QRCodeResource {
         final byte[] hash = digest.digest();
         String sha256 = CryptoUtil.getBase64String(hash);
 
-        logger.info("Finished digesting the application file: {}. Hash: {}", apkUrl, sha256);
+        logger.debug("Finished digesting the application file: {}. Hash: {}", apkUrl, sha256);
         return sha256;
     }
 
     private String generateExtrasBundle(String deviceID, String createOnDemand, Configuration configuration,
-                                        List<String> groups, String useId, String contextPath) {
+                                        List<String> groups, String useId, String contextPath, String miscExtras) {
 
         if (contextPath.startsWith("/")) {
             contextPath = contextPath.substring(1);
@@ -325,7 +354,7 @@ public class QRCodeResource {
         String configurationEntry = "";
         String customerEntry = "";
         if (createOnDemand != null && createOnDemand.equals("1")) {
-            configurationEntry = "\"com.hmdm.CONFIG\":\"" + Integer.toString(configuration.getId()) + "\",\n";
+            configurationEntry = "\"com.hmdm.CONFIG\":\"" + configuration.getQrCodeKey() + "\",\n";
 
             if (!unsecureDAO.isSingleCustomer()) {
                 Customer customer = customerDAO.findById(configuration.getCustomerId());
@@ -362,6 +391,7 @@ public class QRCodeResource {
                 groupEntry +
                 "\"com.hmdm.BASE_URL\":\"" + this.baseUrlForQrCode + "\",\n" +
                 "\"com.hmdm.SERVER_PROJECT\":\"" + contextPath + "\"" +
+                miscExtras +
                 "}\n";
         return bundle;
     }

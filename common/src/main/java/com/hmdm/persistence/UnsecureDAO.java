@@ -418,6 +418,10 @@ public class UnsecureDAO {
         return !customerMapper.isMultiTenant();
     }
 
+    public Integer getMasterCustomerId() {
+        return customerMapper.getMasterId();
+    }
+
     // This should only be called from the tasks, not from the web resource methods
     public List<Customer> getAllCustomersUnsecure() {
         return customerMapper.findAll();
@@ -610,19 +614,12 @@ public class UnsecureDAO {
 
         // If the configuration is specified, we want to create a new device, so don't check the legacy setting
         if (createOptions.getConfiguration() != null) {
-            int configId = 0;
-            try {
-                configId = Integer.parseInt(createOptions.getConfiguration());
-            } catch (NumberFormatException e) {
-                logger.warn("Configuration id must be integer: '" + createOptions.getConfiguration() + "', device not created");
-                return null;
-            }
-            Configuration configuration = configurationMapper.getConfigurationById(configId);
+            Configuration configuration = configurationMapper.getConfigurationByQRCodeKey(createOptions.getConfiguration());
             if (configuration == null) {
-                logger.warn("Failed to get a configuration by id " + createOptions.getConfiguration() + ", device not created");
+                logger.warn("Failed to get a configuration by key " + createOptions.getConfiguration() + ", device not created");
                 return null;
             } else if (configuration.getCustomerId() != customerId) {
-                logger.warn("Configuration id " + createOptions.getConfiguration() + " doesn't belong to customer " +
+                logger.warn("Configuration with key " + createOptions.getConfiguration() + " doesn't belong to customer " +
                         customerId + ", device not created");
                 return null;
             } else {
