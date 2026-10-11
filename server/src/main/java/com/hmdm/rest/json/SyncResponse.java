@@ -63,6 +63,10 @@ public class SyncResponse implements Serializable, SyncResponseInt {
     @ApiModelProperty("Push notification options")
     private String pushOptions;
 
+    @ApiModelProperty("Optional deployment-wide device-facing MQTT TCP/TLS endpoint")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String mqttUrl;
+
     @ApiModelProperty("Keep-Alive time for MQTT connection")
     private Integer keepaliveTime;
 
@@ -640,6 +644,15 @@ public class SyncResponse implements Serializable, SyncResponseInt {
 
     public void setPushOptions(String pushOptions) {
         this.pushOptions = pushOptions;
+    }
+
+    @Override
+    public String getMqttUrl() {
+        return mqttUrl;
+    }
+
+    public void setMqttUrl(String mqttUrl) {
+        this.mqttUrl = mqttUrl == null || mqttUrl.trim().isEmpty() ? null : mqttUrl;
     }
 
     @Override

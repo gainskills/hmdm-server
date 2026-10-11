@@ -2,6 +2,7 @@ package com.hmdm.notification.guice.module;
 
 import com.google.inject.AbstractModule;
 import com.google.inject.name.Names;
+import com.hmdm.notification.DeviceMqttUrl;
 
 import javax.servlet.ServletContext;
 
@@ -27,13 +28,14 @@ public class NotificationMqttConfigModule extends AbstractModule {
         if (serverUri == null) {
             serverUri = "";
         }
-        this.bindConstant().annotatedWith(Names.named("mqtt.server.uri")).to(serverUri);
-
         String mqttExternal = context.getInitParameter("mqtt.external");
         if (mqttExternal == null || "".equals(mqttExternal)) {
             mqttExternal = "0";
         }
         this.bindConstant().annotatedWith(Names.named("mqtt.external")).to(mqttExternal);
+
+        serverUri = DeviceMqttUrl.normalize(serverUri);
+        this.bindConstant().annotatedWith(Names.named("mqtt.server.uri")).to(serverUri);
 
         String mqttClientTag = context.getInitParameter("mqtt.client.tag");
         if (mqttClientTag == null) {

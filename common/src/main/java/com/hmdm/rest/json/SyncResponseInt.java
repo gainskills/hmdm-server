@@ -105,6 +105,10 @@ public interface SyncResponseInt {
 
     String getPushOptions();
 
+    default String getMqttUrl() {
+        return null;
+    }
+
     Integer getKeepaliveTime();
 
     Boolean getAutoBrightness();

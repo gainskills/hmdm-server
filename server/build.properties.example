@@ -55,6 +55,8 @@ mqtt.server.uri=tcp://localhost:31000
 # Examples:
 # mqtt.server.uri=ssl://mqtt.example.com:8883  (custom domain)
 # mqtt.server.uri=ssl://example.com:8883       (same domain as web server)
+#
+# Use an address reachable by both the HMDM server and devices. See docs/MQTT.md.
 
 # mqtt authentication for more security (supported by Headwind MDM launcher v5.05 and above)
 mqtt.auth=true

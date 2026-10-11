@@ -102,6 +102,7 @@ public class SyncResource {
     private Set<SyncResponseHook> syncResponseHooks;
 
     private String baseUrl;
+    private String mqttDeviceUrl;
 
     private BaseIPFilter remoteAddrResolver;
 
@@ -133,6 +134,7 @@ public class SyncResource {
                         CustomerDAO customerDAO,
                         DeviceDAO deviceDAO,
                         @Named("base.url") String baseUrl,
+                        @Named("mqtt.server.uri") String mqttServerUri,
                         @Named("secure.enrollment") boolean secureEnrollment,
                         @Named("hash.secret") String hashSecret,
                         @Named("prevent.duplicate.enrollment") boolean preventDuplicateEnrollment,
@@ -145,6 +147,7 @@ public class SyncResource {
         this.customerDAO = customerDAO;
         this.deviceDAO = deviceDAO;
         this.baseUrl = baseUrl;
+        this.mqttDeviceUrl = mqttServerUri;
         this.secureEnrollment = secureEnrollment;
         this.hashSecret = hashSecret;
         this.preventDuplicateEnrollment = preventDuplicateEnrollment;
@@ -350,6 +353,7 @@ public class SyncResource {
             data = new SyncResponse(configuration, applications, dbDevice);
         }
 
+        data.setMqttUrl(mqttDeviceUrl);
         data.setGps(configuration.getGps());
         data.setBluetooth(configuration.getBluetooth());
         data.setWifi(configuration.getWifi());

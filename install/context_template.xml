@@ -48,6 +48,8 @@
 
     <!-- MQTT notification service parameters -->
     <Parameter name="mqtt.server.uri" value="_MQTT_SERVER_URI_"/>
+    <!-- Set mqtt.external to 1 to use an external broker instead of starting an embedded one. -->
+    <!-- <Parameter name="mqtt.external" value="1"/> -->
     <Parameter name="mqtt.admin.password" value="_MQTT_ADMIN_PASSWORD_"/>
     <Parameter name="ssl.keystore.password" value="_SSL_KEYSTORE_PASSWORD_"/>
     <Parameter name="ssl.protocols" value="_SSL_PROTOCOLS_"/>
